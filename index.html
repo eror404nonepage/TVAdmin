@@ -67,13 +67,14 @@ const go=t=>{document.querySelectorAll('aside button').forEach(b=>b.classList.to
 const block=run(async(id,s)=>{await rpc('admin_block',{p_id:id,p_state:s});go('users')});
 const del=run(async id=>{if(!confirm('Delete this account and all its content?'))return;await rpc('admin_delete',{p_id:id});go('users')});
 const decide=run(async(id,s)=>{await rpc('admin_withdrawal',{p_id:id,p_status:s});go('withdrawals')});
+const verify=run(async(id,s)=>{await rpc('admin_verify',{p_id:id,p_state:s});go('users')});
 async function overview(){
  const s=await rpc('admin_stats');
  $('#main').innerHTML='<h2>Overview</h2><div class="grid">'+[['Accounts',s.users],['Blocked',s.blocked],['Posts',s.posts],['Revenue (Stars)',s.revenue],['Pending withdrawals',s.pending]].map(([k,v])=>`<div class="card"><div class="mute">${k}</div><b>${v}</b></div>`).join('')+'</div>';
 }
 async function users(){
- const l=await rpc('admin_list',{p_kind:'users'});
- $('#main').innerHTML='<h2>Accounts</h2>'+table(['ID','Name','Username','Stars','Posts','Status',''],l.map(u=>[u.id,esc(u.name)+(u.fake?' <i class="mute">test</i>':''),esc(u.username||'-'),u.stars,u.posts,u.blocked?'Blocked':'Active',`<button onclick="block(${u.id},${!u.blocked})">${u.blocked?'Unblock':'Block'}</button><button class="red" onclick="del(${u.id})">Delete</button>`]));
+ const [l,vs]=await Promise.all([rpc('admin_list',{p_kind:'users'}),rpc('admin_verified')]),V=new Set(vs);
+ $('#main').innerHTML='<h2>Accounts</h2>'+table(['ID','Name','Username','Stars','Posts','Status',''],l.map(u=>[u.id,esc(u.name)+(V.has(u.id)?' <b style="color:#2f9bff">✓</b>':'')+(u.fake?' <i class="mute">test</i>':''),esc(u.username||'-'),u.stars,u.posts,u.blocked?'Blocked':'Active',`<button onclick="verify(${u.id},${!V.has(u.id)})">${V.has(u.id)?'Unverify':'Verify'}</button><button onclick="block(${u.id},${!u.blocked})">${u.blocked?'Unblock':'Block'}</button><button class="red" onclick="del(${u.id})">Delete</button>`]));
 }
 async function payments(){
  const l=await rpc('admin_list',{p_kind:'payments'});
@@ -85,12 +86,13 @@ async function withdrawals(){
 }
 async function settings(){
  const s=await rpc('admin_settings');
- $('#main').innerHTML=`<h2>Bot &amp; Stars payments</h2><label class="mute">Bot token</label><input id="bt" value="${esc(s.bot_token)}"><label class="mute">Platform fee (%)</label><input id="fee" type="number" min="0" max="100" value="${esc(s.fee)}"><button class="pri" id="sv">Save and connect Stars payments</button><h2 style="margin-top:28px">Admin password</h2><input id="np" type="password" placeholder="New password (8+ characters)"><button id="cp">Change password</button>`;
+ $('#main').innerHTML=`<h2>Bot &amp; Stars payments</h2><label class="mute">Bot token</label><input id="bt" value="${esc(s.bot_token)}"><label class="mute">Platform fee (%)</label><input id="fee" type="number" min="0" max="100" value="${esc(s.fee)}"><label class="mute">Verified badge price (Stars)</label><input id="vp" type="number" min="1" value="${esc(s.verify_price)}"><button class="pri" id="sv">Save and connect Stars payments</button><h2 style="margin-top:28px">Admin password</h2><input id="np" type="password" placeholder="New password (8+ characters)"><button id="cp">Change password</button>`;
  $('#sv').onclick=run(async()=>{
   const token=$('#bt').value.trim(),secret=crypto.randomUUID().replaceAll('-','');
   await rpc('admin_set',{p_key:'bot_token',p_value:token});
   await rpc('admin_set',{p_key:'fee',p_value:String(Math.min(100,Math.max(0,+$('#fee').value||0)))});
   await rpc('admin_set',{p_key:'webhook_secret',p_value:secret});
+  await rpc('admin_set',{p_key:'verify_price',p_value:String(Math.max(1,+$('#vp').value||100))});
   const r=await(await fetch(`https://api.telegram.org/bot${token}/setWebhook`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({url:SB_URL+'/rest/v1/rpc/tg_webhook?apikey='+KEY,secret_token:secret,allowed_updates:['message','pre_checkout_query']})})).json();
   if(!r.ok)throw new Error(r.description);
   toast('Connected',1);
