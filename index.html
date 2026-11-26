@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Admin</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<style>
+:root{--bg:#0e0f13;--card:#171921;--line:#252835;--text:#f2f3f7;--mute:#8b90a3;--acc:#6c7bff;--red:#ff5a6a}
+*{box-sizing:border-box;margin:0}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--text);font:14px/1.4 system-ui,sans-serif}
+#login{max-width:320px;margin:20vh auto;padding:0 16px}
+#app{display:flex;min-height:100vh}
+aside{width:180px;background:var(--card);border-right:1px solid var(--line);padding:12px;display:flex;flex-direction:column;gap:6px}
+aside button{text-align:left}
+main{flex:1;padding:20px;min-width:0}
+h2{margin-bottom:14px}
+button{background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px 12px;font:inherit;cursor:pointer}
+button.on,button.pri{background:var(--acc);border-color:var(--acc)}
+button.red{color:var(--red)}
+input{width:100%;background:var(--bg);border:1px solid var(--line);border-radius:8px;color:var(--text);padding:10px;font:inherit;margin:4px 0 12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
+.card b{font-size:24px}
+.scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:8px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{color:var(--mute);font-weight:500}
+td button{margin-right:6px;padding:4px 8px}
+.mute{color:var(--mute)}
+#toast{position:fixed;right:16px;top:16px;padding:10px 14px;border-radius:10px;display:none;z-index:9}
+@media(max-width:700px){#app{flex-direction:column}aside{width:auto;flex-direction:row;flex-wrap:wrap}}
+</style>
+</head>
+<body>
+<div id="toast"></div>
+<div id="login">
+<h2>Admin</h2>
+<input id="pw" type="password" placeholder="Password">
+<button class="pri" id="in">Sign in</button>
+</div>
+<div id="app" hidden>
+<aside>
+<button data-t="overview" onclick="go('overview')">Overview</button>
+<button data-t="users" onclick="go('users')">Accounts</button>
+<button data-t="payments" onclick="go('payments')">Payments</button>
+<button data-t="withdrawals" onclick="go('withdrawals')">Withdrawals</button>
+<button data-t="settings" onclick="go('settings')">Bot &amp; Stars</button>
+<button data-t="tools" onclick="go('tools')">Test accounts</button>
+</aside>
+<main id="main"></main>
+</div>
+<script>
+const SB_URL='https://gocqxgtmzrsbicydxpyy.supabase.co';
+const KEY='sb_publishable_IxlI99CnUY4_inBEPGAfvQ_eK-5TSDE';
+const sb=supabase.createClient(SB_URL,KEY);
+let PW=sessionStorage.getItem('pw');
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const toast=(m,ok)=>{const t=$('#toast');t.textContent=m;t.style.background=ok?'var(--acc)':'var(--red)';t.style.display='block';setTimeout(()=>t.style.display='none',3000)};
+const rpc=async(n,a={})=>{const{data,error}=await sb.rpc(n,{p_pw:PW,...a});if(error)throw error;return data};
+const run=fn=>async(...a)=>{try{return await fn(...a)}catch(e){toast(e.message||'Error')}};
+const date=d=>esc(new Date(d).toLocaleString());
+const table=(h,r)=>`<div class="scroll"><table><thead><tr>${h.map(x=>`<th>${x}</th>`).join('')}</tr></thead><tbody>${r.map(x=>`<tr>${x.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+const go=t=>{document.querySelectorAll('aside button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));run(views[t])()};
+const block=run(async(id,s)=>{await rpc('admin_block',{p_id:id,p_state:s});go('users')});
+const del=run(async id=>{if(!confirm('Delete this account and all its content?'))return;await rpc('admin_delete',{p_id:id});go('users')});
+const decide=run(async(id,s)=>{await rpc('admin_withdrawal',{p_id:id,p_status:s});go('withdrawals')});
+async function overview(){
+ const s=await rpc('admin_stats');
+ $('#main').innerHTML='<h2>Overview</h2><div class="grid">'+[['Accounts',s.users],['Blocked',s.blocked],['Posts',s.posts],['Revenue (Stars)',s.revenue],['Pending withdrawals',s.pending]].map(([k,v])=>`<div class="card"><div class="mute">${k}</div><b>${v}</b></div>`).join('')+'</div>';
+}
+async function users(){
+ const l=await rpc('admin_list',{p_kind:'users'});
+ $('#main').innerHTML='<h2>Accounts</h2>'+table(['ID','Name','Username','Stars','Posts','Status',''],l.map(u=>[u.id,esc(u.name)+(u.fake?' <i class="mute">test</i>':''),esc(u.username||'-'),u.stars,u.posts,u.blocked?'Blocked':'Active',`<button onclick="block(${u.id},${!u.blocked})">${u.blocked?'Unblock':'Block'}</button><button class="red" onclick="del(${u.id})">Delete</button>`]));
+}
+async function payments(){
+ const l=await rpc('admin_list',{p_kind:'payments'});
+ $('#main').innerHTML='<h2>Payments</h2>'+table(['Date','User','Post','Stars'],l.map(p=>[date(p.created),esc(p.name||'-'),p.post||'-',p.stars]));
+}
+async function withdrawals(){
+ const l=await rpc('admin_list',{p_kind:'withdrawals'});
+ $('#main').innerHTML='<h2>Withdrawals</h2>'+table(['Date','User','Stars','Status',''],l.map(w=>[date(w.created),esc(w.name),w.stars,esc(w.status),w.status==='pending'?`<button onclick="decide(${w.id},'approved')">Approve</button><button class="red" onclick="decide(${w.id},'rejected')">Reject</button>`:'']));
+}
+async function settings(){
+ const s=await rpc('admin_settings');
+ $('#main').innerHTML=`<h2>Bot &amp; Stars payments</h2><label class="mute">Bot token</label><input id="bt" value="${esc(s.bot_token)}"><label class="mute">Platform fee (%)</label><input id="fee" type="number" min="0" max="100" value="${esc(s.fee)}"><button class="pri" id="sv">Save and connect Stars payments</button><h2 style="margin-top:28px">Admin password</h2><input id="np" type="password" placeholder="New password (8+ characters)"><button id="cp">Change password</button>`;
+ $('#sv').onclick=run(async()=>{
+  const token=$('#bt').value.trim(),secret=crypto.randomUUID().replaceAll('-','');
+  await rpc('admin_set',{p_key:'bot_token',p_value:token});
+  await rpc('admin_set',{p_key:'fee',p_value:String(Math.min(100,Math.max(0,+$('#fee').value||0)))});
+  await rpc('admin_set',{p_key:'webhook_secret',p_value:secret});
+  const r=await(await fetch(`https://api.telegram.org/bot${token}/setWebhook`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({url:SB_URL+'/rest/v1/rpc/tg_webhook?apikey='+KEY,secret_token:secret,allowed_updates:['message','pre_checkout_query']})})).json();
+  if(!r.ok)throw new Error(r.description);
+  toast('Connected',1);
+ });
+ $('#cp').onclick=run(async()=>{
+  const n=$('#np').value;
+  await rpc('admin_password',{p_new:n});
+  PW=n;
+  sessionStorage.setItem('pw',n);
+  toast('Password changed',1);
+ });
+}
+function tools(){
+ $('#main').innerHTML='<h2>Test accounts</h2><p class="mute" style="margin-bottom:12px">Creates fake accounts, each with three posts (one paid).</p><input id="n" type="number" min="1" max="50" value="10"><button class="pri" id="mk">Create fake accounts</button> <button class="red" id="rm">Delete all fake accounts</button>';
+ $('#mk').onclick=run(async()=>{await rpc('admin_fake',{p_count:+$('#n').value});toast('Created',1)});
+ $('#rm').onclick=run(async()=>{if(!confirm('Delete all fake accounts?'))return;await rpc('admin_purge_fake');toast('Deleted',1)});
+}
+const views={overview,users,payments,withdrawals,settings,tools};
+const enter=async()=>{await rpc('admin_stats');$('#login').hidden=true;$('#app').hidden=false;go('overview')};
+$('#in').onclick=run(async()=>{
+ PW=$('#pw').value;
+ try{await enter();sessionStorage.setItem('pw',PW)}catch(e){PW=null;throw e}
+});
+if(PW)run(enter)();
+</script>
+</body>
+</html>
